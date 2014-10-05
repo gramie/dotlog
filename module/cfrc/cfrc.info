@@ -1,0 +1,6 @@
+name = CFRC logs
+description = Create and manage Playsheet logs for CFRC Radio
+core = 7.x
+package = cfrc
+
+stylesheets[all][] = css/cfrc.css

@@ -1,0 +1,385 @@
+<?php
+require_once('programs.inc');
+require_once('schedules.inc');
+
+function cfrc_menu() {
+	$items['programs'] = array(
+		'title' => 'CFRC Programs',
+		'page callback' => 'cfrc_viewPrograms',
+		'access arguments' => array('access content'),
+	);
+	
+	$items['admin/config/content/radio'] = array(
+	    'title' => 'Radio station config',
+	    'description' => 'Configuration for the CFRC module',
+	    'page callback' => 'drupal_get_form',
+	    'page arguments' => array('cfrc_config_form'),
+	    'access arguments' => array('access administration pages'),
+	    'type' => MENU_NORMAL_ITEM,
+  	);
+
+	return $items;	
+}
+
+function cfrc_config_form($form, &$form_state) {
+  $form['can-con-percentage'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Percentage Canadian content required'),
+    '#default_value' => variable_get('can-con-percentage', 30),
+    '#field_suffix' => '%',
+    '#size' => 2,
+    '#maxlength' => 3,
+    '#description' => t('The percentage of Canadian content that is required by our license'),
+    '#required' => TRUE,
+  );
+
+  return system_settings_form($form);
+}
+
+function cfrc_node_view($node, $view_mode, $langcode) {
+	if ($node->type == 'playsheet') {
+	    _cfrc_loadJavascript();
+		$entries = cfrc_getPlaysheetEntries($node->nid);
+		$options = array('editable' => false);
+		$playDate = $node->field_playsheet_date[LANGUAGE_NONE][0];
+		$playsheet = theme('playsheet_entries', array(
+			'entries' => $entries, 
+			'categories' => _cfrc_getCategories(),
+			'startdate' => strtotime($playDate['value'] . ' ' . $playDate['timezone_db']), 
+			'enddate' => strtotime($playDate['value2'] . ' ' . $playDate['timezone_db']),
+			'options' => $options));
+
+		// Add the playsshet to the existing body 
+		if (isset($node->content['body'])) {
+			$body = $node->content['body'][0]['#markup'];
+			$node->content['body'][0]['#markup'] = $body . $playsheet;
+		}		
+	}
+}
+
+function cfrc_node_presave($node) {
+    if ($node->type == 'playsheet' && $node->nid === null) {
+        $wrapper = entity_metadata_wrapper('node', $node);
+        $show = $wrapper->field_radio_->value();
+        $showDate = $wrapper->field_playsheet_date->value();
+        $dt = strtotime($showDate['value'] . ' ' . $showDate['timezone_db']);
+        $node->title = $show->name . ' ' . date('Y-m-d', $dt);
+    } 
+}
+
+function cfrc_form_alter(&$form, &$form_state, $form_id) {
+    drupal_add_library('system', 'ui.dialog');
+    drupal_add_library('system', 'ui.draggable');
+    drupal_add_library('system', 'ui.droppable');
+    
+    if ($form_id == 'playsheet_node_form') {
+        _cfrc_loadJavascript();
+		$form['actions']['submit']['#submit'][] = 'cfrc_submit_playsheet';
+
+        if ($form['nid']['#value']) {
+			// This is an existing playsheet, so get the entries it may have
+            $entries = cfrc_getPlaysheetEntries($form['nid']['#value']);
+		} else {
+			$entries = array();
+			// Don't show the Title field if it is a new Playsheet
+            $form['title']['#access'] = false;
+		}
+		$options = array('editable' => TRUE);
+		if (isset($form['#node']->field_playsheet_date[LANGUAGE_NONE][0])) {
+		    $playDate = $form['#node']->field_playsheet_date[LANGUAGE_NONE][0];
+		    $startDate = strtotime($playDate['value'] . ' ' . $playDate['timezone_db']);
+		    $endDate = strtotime($playDate['value2'] . ' ' . $playDate['timezone_db']);
+		} else {
+		    $startDate = strtotime('midnight');
+		    $endDate = strtotime('+1 hour', $startDate);
+		}
+        $form['playsheet_entries'] = array(
+            '#suffix' => theme('playsheet_entries',	array(
+            	'entries' => $entries,                              
+            	'categories' => _cfrc_getCategories(),
+            	'startdate' => $startDate,
+            	'enddate' => $endDate,
+            	'options' => $options)),
+            '#weight' => 5,
+        );
+        
+		$form['entries-value'] = array(
+			'#type' => 'hidden',
+			'#value' => '',
+		);
+		$form['edit-dialog'] = array(
+		    '#markup' => file_get_contents(drupal_get_path('module', 'cfrc') . '/playsheet.inc'),
+		);
+		$form['#attached']['js'][] = drupal_get_path('module', 'cfrc') . '/js/cfrc.js';
+		
+		// Get the CRTC values from the PlaysheetEntry list field
+		$all_fields_on_my_website = field_info_fields();
+		$allowed_values = list_allowed_values($all_fields_on_my_website["field_crtc"]);
+		$form['#attached']['js'][] = array(
+		    'type' => 'inline',
+		    'data' => 'var crtcValues = ' . json_encode($allowed_values) . ';'
+		);
+    }
+}
+
+function cfrc_submit_playsheet($form, &$form_state) { 
+	$jsonEntries = $form_state['input']['entries-value'];
+	$entries = json_decode($jsonEntries, true);
+	dpm($entries);
+	$dateField = $form_state['values']['field_playsheet_date'][LANGUAGE_NONE][0];
+	$startdate = strtotime($dateField['value']) + $dateField['offset'];
+	_cfrc_setPlaysheetEntryTimes($startdate, $entries);
+	
+	$submittedEntries = _cfrc_classifyEntries($entries);
+	
+	_cfrc_updatePlaysheetEntries($form_state['values'], $submittedEntries);
+}
+
+function _cfrc_setPlaysheetEntryTimes($startDate, &$entries) {
+	foreach($entries as $entryIdx => $entry) {
+		$entries[$entryIdx]['startTime'] = date('Y-m-d H:i', $startDate);
+		$startDate += $entry['duration'] * 60;
+	}
+}
+
+function _cfrc_updatePlaysheetEntries($playsheetNode, $submittedEntries) {
+	$playsheetNID = $playsheetNode['nid'];
+	// At first, only get the NodeIDs for entries, because not all need to be updated, and
+	// some may be deleted
+	$existingEntries = cfrc_getPlaysheetEntries($playsheetNID, TRUE);
+	
+	// Delete any entries that are in the DB but not the submitted data
+	_cfrc_removeDeletedEntries($existingEntries, $submittedEntries['existing']);
+	// Add any entries in the submitted data that have no ID
+	_cfrc_saveNewEntries($playsheetNID, $submittedEntries['new']);
+	// Update any entries that are marked as "changed" in the submitted data
+	_cfrc_updateEntries($submittedEntries['existing']);
+}
+
+/**
+  * Separate the Playsheet Entries into "existing" and "new" groups so
+  * that their nodes can be updated and inserted 
+  */
+function _cfrc_classifyEntries($entries) {
+	$Result = array('existing' => array(), 'new' => array());
+	
+	foreach($entries as $entry) {
+		if (isset($entry['id']) && $entry['id']) {
+			$Result['existing'][$entry['id']] = $entry;
+		} else {
+			$Result['new'][] = $entry;
+		}
+	}
+	
+	return ($Result);
+}
+
+function _cfrc_removeDeletedEntries(&$dbEntries, $submittedEntries) {
+	$entriesToDelete = array();
+	foreach($dbEntries as $idx => $dbe) {
+		if (!isset($submittedEntries[$dbe])) {
+			$entriesToDelete[] = $dbe;
+			unset($dbEntries[$idx]);
+		}
+	}
+	node_delete_multiple($entriesToDelete);
+}
+
+function _cfrc_saveNewEntries($playsheetNID, $newEntries) {
+	foreach($newEntries as $entry) {
+		$entry['playsheetnid'] = $playsheetNID;
+		_cfrc_savePlaysheetEntryNode($entry);
+	}
+}
+
+function _cfrc_updateEntries($submittedEntries) {
+	$entriesToUpdate = array();
+	foreach($submittedEntries as $entry) {
+		if ($entry['changed']) {
+			$entriesToUpdate[] = $entry['id'];
+		}
+	}
+	if (count($entriesToUpdate) > 0) {
+		$nodes = node_load_multiple($entriesToUpdate);
+		foreach($nodes as $n) {
+			_cfrc_savePlaysheetEntryNode($submittedEntries[$n->nid], $n);
+		}
+	}
+}
+
+function _cfrc_savePlaysheetEntryNode($newData, $node = NULL) {
+	$values = array(
+		'type' => 'playsheet_entry',
+		'uid' => 1,
+		'status' => 1,
+		'comment' => 0,
+		'promote' => 0,
+	);
+	if (!$node) {
+		$node = entity_create('node', $values);
+	}
+	$wrapper = entity_metadata_wrapper('node', $node);
+	$wrapper->title->set($newData['startTime']);
+	// Setting dates/times are not handled well with entity_metadata_wrapper,
+	// so do it the "old fashioned way"
+	$startTime = strtotime($newData['startTime']);
+	$node->field_start_time[LANGUAGE_NONE][0]['value'] = date('Y-m-d H:i', $startTime);
+	
+	$wrapper->field_duration->set($newData['duration']);
+	$wrapper->field_artist->set($newData['artist']);
+	$wrapper->field_song->set($newData['song']);
+	// Clear all the categories, then add back the ones we have
+	$wrapper->field_categories = array();
+	foreach(_cfrc_getCategories() as $catName => $catValue) {
+		if ($newData[$catName]) {
+			$wrapper->field_categories[] = $catName;
+		}
+	}
+	if ($newData['crtc']) {
+		$wrapper->field_crtc->set($newData['crtc']);
+	}
+	$wrapper->field_song_language->set($newData['language']);
+	if (isset($newData['playsheetnid'])) {
+		$wrapper->field_playsheet->set(intval($newData['playsheetnid']));
+	}
+	$wrapper->save();
+}
+
+function cfrc_getPlaysheetEntries($playsheetID, $idsOnly = FALSE) {
+    $query = new EntityFieldQuery();
+    $query
+        ->entityCondition('entity_type', 'node')
+        ->entityCondition('bundle', 'playsheet_entry')
+        ->propertyCondition('status', 1)
+        ->fieldCondition('field_playsheet', 'target_id', $playsheetID);
+        //->fieldOrderBy('field_start_time', 'value');
+        //->addTag('efq_debug')
+    $res = $query->execute();
+	if (isset($res['node'])) {
+		$nids = array_keys($res['node']);
+		if ($idsOnly) {
+			$Result = $nids;
+		} else {
+		    $entries = entity_load('node', $nids);
+			$Result = _cfrc_convertPlaysheetEntryNodesToArrays($entries);
+		}
+	} else {
+		$Result = array();
+	}
+	return ($Result);
+}
+
+function _cfrc_convertPlaysheetEntryNodesToArrays($nodes) {
+	$Result = array();
+	foreach($nodes as $n) {
+		$thisNode = array();
+	    $wrapper = entity_metadata_wrapper('node', $n);
+	    $thisNode['id'] = $n->nid;
+	    //dpr($wrapper);
+		$thisNode['artist'] = $wrapper->field_artist->value();
+		$thisNode['song'] = $wrapper->field_song->value();
+    	$entryTime = $wrapper->field_start_time->value();
+    	$thisNode['startTime'] = $entryTime;
+    	$thisNode['duration'] = $wrapper->field_duration->value(); 
+    	$thisNode['language'] = $wrapper->field_song_language->value();
+		$thisNode['crtc'] = $wrapper->field_crtc->value();
+		$categories = _cfrc_getCategories();
+		// Find which categories are selected
+		foreach($wrapper->field_categories as $cat) {
+			$categories[$cat->value()] = true;
+		}
+		foreach($categories as $catName => $catSelected) {
+			$thisNode[$catName] = $catSelected;
+		}
+		$thisNode['changed'] = false;
+		$Result[] = $thisNode;
+	}
+	//dpm($Result);
+	return ($Result);
+}
+
+function cfrc_theme() {
+    $Result = array(
+        'playsheet_entries' => array(
+            'template' => 'playsheet_entries',
+            'path' => drupal_get_path('module', 'cfrc') . '/templates',
+            'variables' => array(
+                'entries' => NULL,
+                'categories' => NULL,
+                'startdate' => NULL,
+                'enddate' => NULL,
+                'options' => NULL
+            ),
+        ),
+        'program_list' => array(
+        	'template' => 'program_list',
+            'path' => drupal_get_path('module', 'cfrc') . '/templates',
+            'variables' => array(
+                'programs' => NULL,
+                'users' => NULL,
+            ),
+		),
+        'radio_schedule' => array(
+        	'template' => 'schedule',
+            'path' => drupal_get_path('module', 'cfrc') . '/templates',
+            'variables' => array(
+                'schedule' => NULL,
+            ),
+		),
+		
+    );
+    
+    return ($Result);
+}
+
+function _cfrc_secs2Time($secs) {
+	$secondsInAMinute = 60;
+    $secondsInAnHour  = 60 * $secondsInAMinute;
+    $secondsInADay    = 24 * $secondsInAnHour;
+
+    // extract days
+    $days = floor($secs / $secondsInADay);
+
+    // extract hours
+    $hourSeconds = $secs % $secondsInADay;
+    $hours = floor($hourSeconds / $secondsInAnHour);
+
+    // extract minutes
+    $minuteSeconds = $hourSeconds % $secondsInAnHour;
+    $minutes = floor($minuteSeconds / $secondsInAMinute);
+
+    // extract the remaining seconds
+    $remainingSeconds = $minuteSeconds % $secondsInAMinute;
+    $seconds = ceil($remainingSeconds);
+
+    // return the final array
+    $Result = array(
+        'd' => (int) $days,
+        'h' => (int) $hours,
+        'm' => (int) $minutes,
+        's' => (int) $seconds,
+    );
+    return ($Result);
+}
+
+function _cfrc_time2mins($inTime) {
+	$Result = date('H', $inTime) * 60 + date('i', $inTime);
+	return ($Result);
+}
+	
+
+function _cfrc_getCategories() {
+	return array(
+		'newsong' => false,
+		'cancon' => false,
+		'instrumental' => false,
+		'hit' => false,
+    );
+}
+
+function _cfrc_loadJavascript() {
+    drupal_add_js(drupal_get_path('module', 'cfrc') . '/js/playsheet.js');
+    drupal_add_js(drupal_get_path('module', 'cfrc') . '/js/cfrc.js');
+    drupal_add_js(drupal_get_path('module', 'cfrc') . '/js/cfrc-programs.js');
+}
+

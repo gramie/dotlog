@@ -1,0 +1,113 @@
+#add-row-button {
+    font-size: 150%;
+}
+
+#playsheet-entries tr:hover {
+    background-color: #CFC;
+}
+
+#playsheet-entries td, #playsheet-entries th {
+	padding: 2px;
+}
+
+#edit-field-radio-, #edit-field-cfrc-category {
+    float: left;
+    margin-top: 6px;
+    margin-left: 6px;
+}
+
+#edit-field-playsheet-date {
+    clear: both;
+}
+
+#playsheet-entries input[type=text] {
+	border: 1px solid gray;
+	padding: 0 3px;
+	width: 96%;
+}
+
+#playsheet-entries .playsheet-buttons {
+	width : 120px;
+	text-align : center;
+}
+
+#playsheet-entries .playsheet-buttons button {
+    width: 27px;
+    height: 27px;
+    margin-right: 3px;
+    font-size: 150%;
+}
+
+#playsheet-entries .duration-col input {
+	width: 4em;
+}
+
+#playsheet-entries .language-col input {
+	width: 6em;
+}
+
+#playsheet-entries .actions-col {
+	width: 70px;
+}
+
+#playsheet-entries .duration-problem {
+	font-weight: bold;
+	color: red;
+	background-color: silver;
+}
+
+#playsheet-entries th {
+	text-align: center;
+}
+
+#playsheet-entries.non-editable .actions-col {
+	width: 0;
+}
+
+#playsheet-entries .drop-hover {
+    background-color: #AFA;
+}
+
+#edit-field-playsheet-date .date-no-float { float: left; width: auto; clear: none; }
+#edit-field-playsheet-date .date-no-float > .form-item > label { float: left; margin: 34px 40px 0 30px; }
+#edit-field-playsheet-date .start-date-wrapper { clear: left; }
+
+.newsong-col, .cancon-col, .instrumental-col, .hit-col {
+	text-align: center;                                               
+} 
+
+#playsheet-edit-dialog {
+    display: none;
+}
+
+#playsheet-edit-dialog label {
+    display: inline;
+    font-weight: normal;
+    margin-right: 1em;
+}
+
+#playsheet-edit-dialog table input[type=text] {
+    width: 100%;
+}
+
+#playsheet-edit-dialog table input.duration {
+    width: 3em;
+}
+
+#playsheet-edit-dialog table input[type=text].from-time, 
+#playsheet-edit-dialog table input[type=text].to-time {
+    width: 4em;
+}
+
+#playsheet-node-form .form-item-title {
+    float: left;
+    width: 40%;
+}
+
+#playsheet-edit-dialog th {
+    border: none;
+}
+
+td.check-column {
+    text-align: center;
+}
