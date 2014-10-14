@@ -2,7 +2,7 @@
     font-size: 150%;
 }
 
-#playsheet-entries tr:hover {
+#playsheet-entries tbody tr:hover {
     background-color: #CFC;
 }
 
@@ -23,12 +23,17 @@
 #playsheet-entries input[type=text] {
 	border: 1px solid gray;
 	padding: 0 3px;
-	width: 96%;
+	width:\
 }
 
 #playsheet-entries .playsheet-buttons {
 	width : 120px;
 	text-align : center;
+	visibility: hidden;
+}
+
+#playsheet-entries .selectedRow .playsheet-buttons {
+    visibility: visible;
 }
 
 #playsheet-entries .playsheet-buttons button {
@@ -64,8 +69,10 @@
 	width: 0;
 }
 
-#playsheet-entries .drop-hover {
-    background-color: #AFA;
+#playsheet-entries td.entry-start-time, #playsheet-entries td.entry-end-time {
+    width: 3em;
+    text-align: center;
+    padding-right: 1em;
 }
 
 #edit-field-playsheet-date .date-no-float { float: left; width: auto; clear: none; }
@@ -110,4 +117,16 @@
 
 td.check-column {
     text-align: center;
+}
+
+.required {
+    color: red;
+}
+
+.selectedRow {
+    color: white;
+}
+
+.selectedRow td {
+    background-color: green;
 }

@@ -1,5 +1,6 @@
 Playsheet = function(tableID, editable) {
 	this.table = jQuery('#' + tableID);
+	this.startTime = getDrupalFormTime();
 };
 
 
@@ -8,7 +9,7 @@ Playsheet.prototype.renderTableFooter = function(playsheetItems) {
     
     var totals = this.getTotals(playsheetItems);
     var timeCols = 2;
-    totalRow += '<th>Totals:</th>';
+    totalRow += '<th>Spoken total:</th>';
     
     if (playsheetEditable) {
         totalRow += '<th>' + this.formatTime(totals.spokenDuration) + '</th>';
@@ -17,16 +18,16 @@ Playsheet.prototype.renderTableFooter = function(playsheetItems) {
         timeCols = 1;
     }
     totalRow += '<th colspan="' + timeCols + '"></th>'
-            + '<th>' + this.formatTime(totals.newsong) + '<br />'
+            + '<th>' + totals.newsong + '<br />'
                      + this.getPercent(totals.newsong, totals.allMusic) + '%' + '<br />'
                      + 'New' + '</th>'
-            + '<th>' + this.formatTime(totals.cancon) + '<br />'
+            + '<th>' + totals.cancon + '<br />'
                      + this.getPercent(totals.cancon, totals.allMusic) + '%' + '<br />'
                      + 'CanCon' + '</th>'
-            + '<th>' + this.formatTime(totals.instrumental) + '<br />'
+            + '<th>' + totals.instrumental + '<br />'
                      + this.getPercent(totals.instrumental, totals.allMusic) + '%' + '<br />'
                      + 'Instr' + '</th>'
-            + '<th>' + this.formatTime(totals.hit) + '<br />'
+            + '<th>' + totals.hit + '<br />'
                      + this.getPercent(totals.hit, totals.allMusic) + '%' + '<br />'
                      + 'Hit' + '</th>'
             + '<th></th>'
@@ -74,7 +75,7 @@ Playsheet.prototype.getTotals = function(playsheetItems) {
             totals.allMusic++;
         } else {
             // This is Spoken Word
-            totals.spokenDuration += item.duration;
+            totals.spokenDuration += parseInt(item.duration);
         }
     }
     return (totals);
@@ -98,17 +99,17 @@ Playsheet.prototype.formatRow = function(data, i) {
     var hit = row.hit? 'checked="1"' : '';
     var rowclass = (i % 2 == 0) ? 'even' : 'odd';
     var Result = '<tr class="' + rowclass + '">';
-    if (playsheetEditable) {
-        Result += '<td>' + this.formatTime(row.startTime) + '</td>'
-    }   
-    Result += '<td>' + this.formatTime(row.duration) + '</td>'
+    var entryTime = getDrupalFormTime('start') + parseInt(row.startMinutes);
+    Result += '<td class="entry-start-time">' + this.formatTime(entryTime) + '</td>';
+    entryTime += parseInt(row.duration);
+    Result += '<td class="entry-end-time">' + this.formatTime(entryTime) + '</td>'
         + '<td>' + row.artist + '</td>'
         + '<td>' + row.song + '</td>'
         + '<td class="check-column"><input type="checkbox" disabled="disabled" class="new-check" ' + newsong + '" /></td>'
         + '<td class="check-column"><input type="checkbox" disabled="disabled" class="cancon-check" ' + cancon + '" /></td>'
         + '<td class="check-column"><input type="checkbox" disabled="disabled" class="instrumental-check" ' + instrumental + '" /></td>'
         + '<td class="check-column"><input type="checkbox" disabled="disabled" class="hit-check" ' + hit + '" /></td>'
-        + '<td>' + row.crtc + '</td>'
+        + '<td><span title="' + crtcValues[row.crtc] + '">' + row.crtc + '</span></td>'
         + '<td>' + row.language + '</td>';
     if (playsheetEditable) {
         Result += '<td><div class="playsheet-buttons">';

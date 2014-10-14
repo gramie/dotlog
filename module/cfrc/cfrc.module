@@ -17,6 +17,14 @@ function cfrc_menu() {
 	    'access arguments' => array('access administration pages'),
 	    'type' => MENU_NORMAL_ITEM,
   	);
+  	
+  	$items['alter-playsheets'] = array(
+  	    'title' => 'Change time field of playsheets',
+  	    'description' => '',
+  	    'page callback' => 'cfrc_alterPlaysheets',
+  	    'access arguments' => array('access administration pages'),
+	    'type' => MENU_NORMAL_ITEM,
+    );
 
 	return $items;	
 }
@@ -125,21 +133,12 @@ function cfrc_form_alter(&$form, &$form_state, $form_id) {
 function cfrc_submit_playsheet($form, &$form_state) { 
 	$jsonEntries = $form_state['input']['entries-value'];
 	$entries = json_decode($jsonEntries, true);
-	dpm($entries);
 	$dateField = $form_state['values']['field_playsheet_date'][LANGUAGE_NONE][0];
 	$startdate = strtotime($dateField['value']) + $dateField['offset'];
-	_cfrc_setPlaysheetEntryTimes($startdate, $entries);
-	
+	dpm($entries);
 	$submittedEntries = _cfrc_classifyEntries($entries);
 	
 	_cfrc_updatePlaysheetEntries($form_state['values'], $submittedEntries);
-}
-
-function _cfrc_setPlaysheetEntryTimes($startDate, &$entries) {
-	foreach($entries as $entryIdx => $entry) {
-		$entries[$entryIdx]['startTime'] = date('Y-m-d H:i', $startDate);
-		$startDate += $entry['duration'] * 60;
-	}
 }
 
 function _cfrc_updatePlaysheetEntries($playsheetNode, $submittedEntries) {
@@ -170,11 +169,13 @@ function _cfrc_classifyEntries($entries) {
 			$Result['new'][] = $entry;
 		}
 	}
-	
+	dpm($Result);
 	return ($Result);
 }
 
 function _cfrc_removeDeletedEntries(&$dbEntries, $submittedEntries) {
+    dpm("Removing");
+    dpm($dbEntries);
 	$entriesToDelete = array();
 	foreach($dbEntries as $idx => $dbe) {
 		if (!isset($submittedEntries[$dbe])) {
@@ -186,6 +187,8 @@ function _cfrc_removeDeletedEntries(&$dbEntries, $submittedEntries) {
 }
 
 function _cfrc_saveNewEntries($playsheetNID, $newEntries) {
+    dpm("Adding");
+    dpm($newEntries);
 	foreach($newEntries as $entry) {
 		$entry['playsheetnid'] = $playsheetNID;
 		_cfrc_savePlaysheetEntryNode($entry);
@@ -193,12 +196,15 @@ function _cfrc_saveNewEntries($playsheetNID, $newEntries) {
 }
 
 function _cfrc_updateEntries($submittedEntries) {
+    
 	$entriesToUpdate = array();
 	foreach($submittedEntries as $entry) {
-		if ($entry['changed']) {
+		if (isset($entry['changed']) && $entry['changed']) {
 			$entriesToUpdate[] = $entry['id'];
 		}
 	}
+	dpm("Updating");
+	dpm($entriesToUpdate);
 	if (count($entriesToUpdate) > 0) {
 		$nodes = node_load_multiple($entriesToUpdate);
 		foreach($nodes as $n) {
@@ -218,13 +224,15 @@ function _cfrc_savePlaysheetEntryNode($newData, $node = NULL) {
 	if (!$node) {
 		$node = entity_create('node', $values);
 	}
+	dpm("Saving");
+	dpm($newData);
 	$wrapper = entity_metadata_wrapper('node', $node);
 	$wrapper->title->set($newData['startTime']);
 	// Setting dates/times are not handled well with entity_metadata_wrapper,
 	// so do it the "old fashioned way"
 	$startTime = strtotime($newData['startTime']);
-	$node->field_start_time[LANGUAGE_NONE][0]['value'] = date('Y-m-d H:i', $startTime);
-	
+	//$node->field_start_time[LANGUAGE_NONE][0]['value'] = date('Y-m-d H:i', $startTime);
+	$wrapper->field_start_minutes->set($newData['startMinutes']);
 	$wrapper->field_duration->set($newData['duration']);
 	$wrapper->field_artist->set($newData['artist']);
 	$wrapper->field_song->set($newData['song']);
@@ -251,8 +259,8 @@ function cfrc_getPlaysheetEntries($playsheetID, $idsOnly = FALSE) {
         ->entityCondition('entity_type', 'node')
         ->entityCondition('bundle', 'playsheet_entry')
         ->propertyCondition('status', 1)
-        ->fieldCondition('field_playsheet', 'target_id', $playsheetID);
-        //->fieldOrderBy('field_start_time', 'value');
+        ->fieldCondition('field_playsheet', 'target_id', $playsheetID)
+        ->fieldOrderBy('field_start_minutes', 'value');
         //->addTag('efq_debug')
     $res = $query->execute();
 	if (isset($res['node'])) {
@@ -279,6 +287,7 @@ function _cfrc_convertPlaysheetEntryNodesToArrays($nodes) {
 		$thisNode['artist'] = $wrapper->field_artist->value();
 		$thisNode['song'] = $wrapper->field_song->value();
     	$entryTime = $wrapper->field_start_time->value();
+    	$thisNode['startMinutes'] = $wrapper->field_start_minutes->value();
     	$thisNode['startTime'] = $entryTime;
     	$thisNode['duration'] = $wrapper->field_duration->value(); 
     	$thisNode['language'] = $wrapper->field_song_language->value();
@@ -294,7 +303,6 @@ function _cfrc_convertPlaysheetEntryNodesToArrays($nodes) {
 		$thisNode['changed'] = false;
 		$Result[] = $thisNode;
 	}
-	//dpm($Result);
 	return ($Result);
 }
 
@@ -382,4 +390,70 @@ function _cfrc_loadJavascript() {
     drupal_add_js(drupal_get_path('module', 'cfrc') . '/js/cfrc.js');
     drupal_add_js(drupal_get_path('module', 'cfrc') . '/js/cfrc-programs.js');
 }
+
+function cfrc_alterPlaysheets() {
+    $Result = '';
+    
+    foreach(_cfrc_getAllPlaysheetEntries() as $entry) {
+        //dpm($entry);
+        $wrapper = entity_metadata_wrapper('node', $entry);
+        $entryStart = $wrapper->field_start_time->value() + (4 * 3600);
+        
+        $playsheet = $wrapper->field_playsheet->value();
+        //dpm($playsheet);
+        if ($playsheet) {
+            $playsheetWrapper = entity_metadata_wrapper('node', $playsheet);
+            $playsheetDate = $playsheetWrapper->field_playsheet_date->value();
+            //dpm($playsheetDate);
+            $playsheetStart = strtotime($playsheetDate['value'] . ' '
+                . $playsheetDate['timezone_db']);
+            $entryStartMinute = ($entryStart - $playsheetStart)/60;
+            $wrapper->field_start_minutes->set($entryStartMinute);
+            node_save($entry);
+            dpm("Playsheet: " . date('Y-m-d H:i', $playsheetStart));
+            dpm(date('Y-m-d H:i', $entryStart));
+        } else {
+            dpm("Unable to convert" . $entry->nid);
+            dpm($entry);
+        }
+    }    
+    
+    $Result = "Converted nodes";
+	
+	return ($Result);
+}
+
+function _cfrc_getPlaysheets() {
+    $Result = array();
+    $query = new EntityFieldQuery();
+    $query
+        ->entityCondition('entity_type', 'node')
+        ->entityCondition('bundle', 'playsheet')
+        ->propertyCondition('status', 1);
+    $res = $query->execute();
+	if (isset($res['node'])) {
+		$nids = array_keys($res['node']);
+        $Result = entity_load('node', $nids);
+    }
+    
+    return ($Result);
+}
+
+function _cfrc_getAllPlaysheetEntries() {
+    $Result = array();
+    $query = new EntityFieldQuery();
+    $query
+        ->entityCondition('entity_type', 'node')
+        ->entityCondition('bundle', 'playsheet_entry')
+        ->propertyCondition('status', 1)
+        ->fieldOrderBy('field_start_time', 'value', 'ASC');
+    $res = $query->execute();
+	if (isset($res['node'])) {
+		$nids = array_keys($res['node']);
+        $Result = entity_load('node', $nids);
+    }
+    
+    return ($Result);
+}
+
 

@@ -3,6 +3,7 @@
  */
 var Playsheet;
 var editingEntryID;
+var selectedRow;
 
 jQuery(document).ready(function () {
     var options = {
@@ -18,14 +19,22 @@ jQuery(document).ready(function () {
     });
     
     jQuery('#edit-playsheet-item-time :radio.time-radio').click(function() {
-        var enabledText = '';
-        jQuery('#edit-playsheet-item-time :text').prop('disabled', true);
-        if (this.id == 'dialog-to-time') {
-            enabledText = '.to-time';
-        } else {
-            enabledText = '.duration';
-        }
-        jQuery('#edit-playsheet-item-time ' + enabledText).prop('disabled', false);
+        jQuery('#edit-playsheet-item-time .to-time').prop('disabled', this.id != 'dialog-to-time');
+        jQuery('#edit-playsheet-item-time .duration').prop('disabled', this.id == 'dialog-to-time');
+    });
+    
+    jQuery('#edit-playsheet-item-time').on('blur', ':text', function() {
+        checkPlaysheetItemTimes();
+    });
+    
+    jQuery('#playsheet-entries').on('click', 'tr', function() {
+        var row = jQuery(this);
+        selectRow(row.index());
+    });
+    
+    jQuery('#playsheet-entries').on('dblclick', 'tr', function() {
+        var row = jQuery(this);
+        editPlaysheetEntry(row.index());
     });
     
     renderPlaysheet();
@@ -33,9 +42,38 @@ jQuery(document).ready(function () {
     
 });
 
+function selectRow(idx) {
+    if (selectedRow && selectedRow.index() == idx) {
+        selectedRow.removeClass('selectedRow');
+        selectedRow = null;
+    } else {
+        jQuery('#playsheet-entries tbody tr').removeClass('selectedRow')
+        selectedRow = jQuery(jQuery('#playsheet-entries tbody tr').get(idx))
+            .addClass('selectedRow');
+    }
+}
+
+function checkPlaysheetItemTimes() {
+    var startTimeControl = jQuery('#edit-playsheet-item-time .from-time');
+    var endTimeControl = jQuery('#edit-playsheet-item-time .to-time');
+    var durationControl = jQuery('#edit-playsheet-item-time .duration');
+    var endTypeRadio = jQuery('#edit-playsheet-item-time :checked');
+    var programStartTime = getDrupalFormTime('start');
+    var startTime = parseTimeToMinutes(startTimeControl.val());
+    if (endTypeRadio.prop('id') == 'dialog-to-time') {
+        var endTime = parseTimeToMinutes(endTimeControl.val());
+        var duration = (endTime - startTime);
+        durationControl.val(duration);
+    } else {
+        var duration = durationControl.val();
+        var endTime = startTime + parseInt(duration);
+        endTimeControl.val(Playsheet.formatTime(endTime));
+    }
+}
+
 function renderPlaysheet() {
-    var showStart = getDrupalFormDateTime('start');
-    var showEnd = getDrupalFormDateTime('end');
+    var showStart = getDrupalFormTime('start');
+    var showEnd = getDrupalFormTime('end');
     Playsheet.fillPlaysheetGrid(playsheetEntries, showStart, showEnd);
 }
 
@@ -48,18 +86,24 @@ function fillCRTCControl() {
     CRTCControl.html(options);
 }
 
-function getDrupalFormDateTime(dateControlType) {
+function getDrupalFormTime(dateControlType) {
     var dateControlID = (dateControlType == 'start') ? 'value' : 'value2';
     var dateControl = '#edit-field-playsheet-date-und-0-' + dateControlID;
-    var startDate = jQuery(dateControl + '-datepicker-popup-0').val();
     var startTime = jQuery(dateControl + '-timeEntry-popup-1').val();
-    var Result = new Date(startDate + ' ' + startTime);
+    var Result = parseTimeToMinutes(startTime);
     return (Result);
  }
 
 function moveEntry(idx, change) {
+    var selectedIdx = null;
+    if (selectedRow) {
+        selectedIdx = selectedRow.index();
+    }
     playsheetEntries.splice(idx + change, 0, playsheetEntries.splice(idx, 1)[0]);
     renderPlaysheet();
+    if (selectedIdx !== null && selectedIdx == idx) {
+        selectRow(idx + change);
+    }
 }
 
 function editPlaysheetEntry(entryIdx) {
@@ -95,8 +139,13 @@ function closePlaysheetEditDialog() {
 }
 
 function saveEditedEntry() {
-    var Result = {};
-    Result.id = editingEntryIdx;
+    var Result = getNewEntry();
+    if (editingEntryIdx !== null) {
+        Result = playsheetEntries[editingEntryIdx];
+        Result['changed'] = true;
+    } else {
+        playsheetEntries.push(Result);
+    }
     var duration = getDuration();
     if (duration) {
         Result.duration = duration;
@@ -111,35 +160,38 @@ function saveEditedEntry() {
     Result.hit = jQuery('#playsheet-edit-dialog .hit').prop('checked');
     Result.instrumental = jQuery('#playsheet-edit-dialog .instrumental').prop('checked');
     Result.cancon = jQuery('#playsheet-edit-dialog .cancon').prop('checked');
-    if (editingEntryIdx !== null) {
-        playsheetEntries[editingEntryIdx] = Result;
-    } else {
-        playsheetEntries.push(Result);
-    }
+
+    var startTimeControl = jQuery('#edit-playsheet-item-time .from-time');
+    Result.startMinutes = parseTimeToMinutes(startTimeControl.val())
+        - getDrupalFormTime('start');
+    
     renderPlaysheet();
     console.log(Result);
     return (Result);
 }
 
-function parseTime(timeString) {
+function parseTimeToMinutes(timeString) {
     var Result = '';
+    var timeParts = timeString.split(':');
+    if (timeParts.length == 2) {
+        Result = parseInt(timeParts[0] * 60) + parseInt(timeParts[1]);
+    }
     
-    var dateString = new Date().toDateString();
-    Result = new Date(dateString + ' ' + timeString);
-
     return (Result);
 }
 
 function getDuration() {
     var Result = null;
     
-    var startTime = parseTime(jQuery('#playsheet-edit-dialog .from-time').val());
-    var endTime = parseTime(jQuery('#playsheet-edit-dialog .to-time').val());
-    if (endTime >= startTime) {
-        Result = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
+    var endTypeRadio = jQuery('#edit-playsheet-item-time :checked');
+    if (endTypeRadio.prop('id') == 'dialog-to-time') {
+        var startTime = parseTimeToMinutes(jQuery('#playsheet-edit-dialog .from-time').val());
+        var endTime = parseTimeToMinutes(jQuery('#edit-playsheet-item-time .to-time').val());
+        Result = (endTime - startTime);
     } else {
-        alert("Please enter valid start and end times");
+        Result = jQuery('#edit-playsheet-item-time .duration').val();
     }
+
     return (Result);
 }
 
@@ -149,22 +201,22 @@ function checkStartAndEndTimes(startTime, endTime) {
 
 function deletePlaysheetEntry(idx) {
     if (idx < playsheetEntries.length) {
-        playsheetEntries.splice(idx, 1);
-        renderPlaysheet();
+        if (confirm("Are you sure you want to delete this entry?")) {
+            playsheetEntries.splice(idx, 1);
+            renderPlaysheet();
+        }
     }
 }
 
 function fillEditForm(entry) {
+    var programTime = getDrupalFormTime('start') + parseInt(entry.startMinutes);
     var dialog = jQuery('#playsheet-edit-dialog');
-    var startTime = entry.startTime;
-    dialog.find('input.from-time').val(Playsheet.padNumber(startTime.getHours(), 2) 
-        + ':' 
-        + Playsheet.padNumber(startTime.getMinutes(), 2));
-    var endTime = new Date(startTime.getTime() + entry.duration * 60000);
-    dialog.find('input.to-time').val(Playsheet.padNumber(endTime.getHours(), 2) 
-        + ':' 
-        + Playsheet.padNumber(endTime.getMinutes(), 2));
-    dialog.find('span.duration').text(entry.duration);
+    dialog.find('input.from-time').val(Playsheet.formatTime(programTime)); 
+    // When we display the dialog, always select the "To:" time
+    dialog.find('#dialog-to-time').prop('checked', true);
+    programTime += parseInt(entry.duration);
+    dialog.find('input.to-time').val(Playsheet.formatTime(programTime)).prop('disabled', false);
+    dialog.find('input.duration').val(entry.duration).prop('disabled', true);
     dialog.find('input.song').val(entry.song);
     dialog.find('input.artist').val(entry.artist);
     dialog.find('input.newsong').prop('checked', entry.newsong);
@@ -187,6 +239,7 @@ function getNewEntry() {
         hit : false,
         instrumental : false,
         cancon : false,
-        startTime: new Date(getDrupalFormDateTime('start'))
+        startTime: new Date(getDrupalFormTime('start')),
+        startMinutes : 0
     };
 }

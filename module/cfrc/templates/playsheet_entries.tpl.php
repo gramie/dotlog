@@ -10,9 +10,9 @@ $editable = isset($options['editable']) && $options['editable'];
 <thead>
     <tr>
     <?php if ($editable) { ?>
-        <th class="time-col">Time</th>
+        <th class="time-col">Start</th>
     <?php } ?>
-        <th class="duration-col">Duration</th>
+        <th class="duration-col">End</th>
         <th class="artist-col">Artist</th>
         <th class="song-col">Song</th>
         <th class="new-col"><img src="<?php print($imagePath . 'NewIcon.png'); ?>" title="New Music"/></th>

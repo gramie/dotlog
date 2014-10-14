@@ -5,12 +5,12 @@
                 <th>Time</th>
                 <td class="playsheet-time">
                 <table>
-                <tr>
+                <tr id='edit-playsheet-item-time'>
                 <td rowspan="2">
-                    From <input type="text" class="from-time" /> 
+                    From<span class="required">*</span> <input type="text" class="from-time" /> 
                     to 
                 </td>
-                <td id='edit-playsheet-item-time'>
+                <td>
                     <input type="radio" name="end-time" id="dialog-to-time" checked="checked" class="time-radio" />
                     <input type="text" class="to-time" /><br />
                     <input type="radio" name="end-time" id="dialog-duration" class="time-radio" />
@@ -21,7 +21,7 @@
                     </td>
             </tr>
             <tr>
-                <th>Song</th>
+                <th>Song<span class="required">*</span></th>
                 <td><input type="text" class="song" /></td>
             </tr>
             <tr>
@@ -38,7 +38,7 @@
                 </td>
             </tr>
             <tr>
-                <th>CRTC</th>
+                <th>CRTC<span class="required">*</span></th>
                 <td>
                     <select class="crtc">
                         <option value=""></option>
@@ -46,7 +46,7 @@
                 </td>
             </tr>
             <tr>
-                <th>Language</th>
+                <th>Language<span class="required">*</span></th>
                 <td><input type="text" class="language" /></td>
             </tr>
             
