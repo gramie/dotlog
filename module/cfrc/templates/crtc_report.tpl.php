@@ -1,13 +1,20 @@
 <?php 
-dpm($variables);
 $stats = $variables['stats'];
 
-$categories = array(
-    'New' => 'newsong',
-    'CanCon' => 'cancon',
-    'Instrumental' => 'instrumental',
-    'Hit' => 'hit',
-    );
+$categories = cfrc_getStatCategories();
+$header = array_values($categories);
+array_unshift($header, 'Date');
+$rows = array();
+foreach($stats as $statDate => $statRow) {
+    $newRow = array(
+        $statDate
+        );
+    foreach($categories as $catID => $catName) {
+        $newRow[] = $statRow[$catID];
+    }
+    $rows[] = $newRow;
+}
+
 ?>
 <div class="report-timespan">From: 
     <?php print(date('Y-m-d', $variables['timespan']['from'])); ?>
@@ -17,17 +24,10 @@ $categories = array(
 <fieldset>
     <legend>Statistics</legend>
     <div>There were <?php print(count($variables['playsheets'])); ?> playsheets</div>
-    <div>There were <?php print(count($variables['entries'])); ?> entries</div>
-    <div><?php print($stats['songcount']); ?> were songs</div>
-    <div><?php print(count($variables['entries']) - $stats['songcount']); ?> were spoken word</div>
-    <dl>
-        <dt>Spoken word</dt>
-        <dd><?php print($stats['spoken']); ?> minutes</dd>
-<?php foreach($categories as $name => $id) { ?>
-        <dt><?php print($name); ?></dt>
-        <dd><?php print($stats[$id]); ?> 
-            (<?php print(round($stats[$id]/$stats['songcount']*100)); ?>%)
-        </dd>
-<?php } ?>
-    </dl>
+    <div><?php print(theme('table', array(
+        'header' => $header,
+        'rows' => $rows,
+        ))); ?>
+        
+            (<?php //if ($songCount) { print(round($stats[$id]/$songCount*100)); } ?>%)
 </fieldset>

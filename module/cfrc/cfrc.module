@@ -1,6 +1,8 @@
 <?php
 require_once('programs.inc');
 require_once('schedules.inc');
+require_once('crtc_report.inc');
+require_once('allplaysheets_report.inc');
 
 function cfrc_menu() {
 	$items['programs'] = array(
@@ -147,7 +149,6 @@ function cfrc_submit_playsheet($form, &$form_state) {
 	$entries = json_decode($jsonEntries, true);
 	$dateField = $form_state['values']['field_playsheet_date'][LANGUAGE_NONE][0];
 	$startdate = strtotime($dateField['value']) + $dateField['offset'];
-	dpm($entries);
 	$submittedEntries = _cfrc_classifyEntries($entries);
 	
 	_cfrc_updatePlaysheetEntries($form_state['values'], $submittedEntries);
@@ -416,26 +417,20 @@ function cfrc_alterPlaysheets() {
     $Result = '';
     
     foreach(_cfrc_getAllPlaysheetEntries() as $entry) {
-        //dpm($entry);
         $wrapper = entity_metadata_wrapper('node', $entry);
         $entryStart = $wrapper->field_start_time->value() + (4 * 3600);
         
         $playsheet = $wrapper->field_playsheet->value();
-        //dpm($playsheet);
         if ($playsheet) {
             $playsheetWrapper = entity_metadata_wrapper('node', $playsheet);
             $playsheetDate = $playsheetWrapper->field_playsheet_date->value();
-            //dpm($playsheetDate);
             $playsheetStart = strtotime($playsheetDate['value'] . ' '
                 . $playsheetDate['timezone_db']);
             $entryStartMinute = ($entryStart - $playsheetStart)/60;
             $wrapper->field_start_minutes->set($entryStartMinute);
             node_save($entry);
-            dpm("Playsheet: " . date('Y-m-d H:i', $playsheetStart));
-            dpm(date('Y-m-d H:i', $entryStart));
         } else {
             dpm("Unable to convert" . $entry->nid);
-            dpm($entry);
         }
     }    
     
@@ -450,9 +445,9 @@ function _cfrc_getPlaysheets($fromDate = null, $toDate = null) {
     $query
         ->entityCondition('entity_type', 'node')
         ->entityCondition('bundle', 'playsheet')
-        ->propertyCondition('status', 1);
+        ->propertyCondition('status', 1)
+        ->fieldOrderBy('field_playsheet_date', 'value', 'ASC');
     if ($fromDate && $toDate) {
-        dpm("Using date range");
         $query->fieldCondition('field_playsheet_date', 'value', date('Y-m-d', $fromDate), '>');
         $query->fieldCondition('field_playsheet_date', 'value', date('Y-m-d', $toDate), '<');
     }
@@ -483,114 +478,8 @@ function _cfrc_getAllPlaysheetEntries() {
 }
 
 function cfrc_crtcReports() {
-    $Result = array(
-        '#theme' => 'item_list',
-        '#items' => array(
-            'CRTC',
-            'scheduling'
-            ),
-        '#title' => t('Available Reports'),
-        '#type' => 'ul',
-        '#attributes' => array('class' => 'list-class')
-    );
     $Result = drupal_get_form('cfrc_crtcSummaryForm');
     return($Result);
 }
 
-function cfrc_crtcSummaryForm() {
-    if (isset($_SESSION['CRTC_report'])) {
-        $submitted = $_SESSION['CRTC_report'];
-        unset($_SESSION['CRTC_report']);
-    }
-    $form['#submit'][] = 'cfrc_cfrcSummaryFormSubmit';
-    
-    $form['start-date'] = array(
-        '#type' => 'date_select',
-        '#title' => t('Start date'),
-        '#date_format' => 'Y-m-d',
-        '#date_label_position' => 'within',
-        '#date_year_range' => '-10:+0',
-        '#date_timezone' => 'America/New_York',
-        );
-    $form['end-date'] = array(
-        '#type' => 'date_select',
-        '#title' => t('End date'),
-        '#date_format' => 'Y-m-d',
-        '#date_label_position' => 'within',
-        '#date_year_range' => '-10:+0',
-        '#date_timezone' => 'America/New_York',
-        );
-
-    if (isset($submitted)) {
-        $form['start-date']['#default_value'] = $submitted['start-date'];
-        $form['end-date']['#default_value'] = $submitted['end-date'];
-        $form['#suffix'] = _cfrc_getCRTCReport($submitted);
-    } else {
-        $form['start-date']['#default_value'] = date('Y-m-d');
-        $form['end-date']['#default_value'] = date('Y-m-d');
-    }        
-    
-    $form['submit'] = array(
-        '#type' => 'submit',
-        '#value' => t('View report'),
-	);
-    return ($form);
-}
-
-function cfrc_cfrcSummaryFormSubmit($form, &$form_state) {
-    $_SESSION['CRTC_report'] = $form_state['values'];
-}
-
-function _cfrc_getCRTCReport($values) {
-    $Result = '';
-    
-    $fromDate = strtotime($values['start-date']);
-    $toDate = strtotime($values['end-date']);
-    $diff = ceil(($toDate - $fromDate)/(60*60*24));
-    $Result .= "$diff days";
-    
-    $playsheets = _cfrc_getPlaysheets($fromDate, $toDate);
-    $nids = array();
-    foreach($playsheets as $sheet) {
-        $nids[] = $sheet->nid;
-    }
-    $entries = cfrc_getPlaysheetEntries($nids, true);
-    
-    $stats = _cfrc_getCRTCStats($entries);
-    $Result .= theme('crtc_report', array(
-        'timespan' => array('from' => $fromDate, 'to' => $toDate),
-        'playsheets' => $playsheets,
-        'entries' => $entries,
-        'stats' => $stats)
-    );
-
-    return ($Result);
-}
-
-function _cfrc_getCRTCStats($entryNIDs) {
-    $Result = array(
-        'spoken' => 0,
-        'songcount' => 0,
-        'newsong' => 0,
-        'cancon' => 0,
-        'instrumental' => 0,
-        'hit' => 0
-    );
-    
-    foreach(node_load_multiple($entryNIDs) as $node) {
-        $wrapper = entity_metadata_wrapper('node', $node);
-        $crtc = $wrapper->field_crtc->value();
-        if ($crtc >= 20 && $crtc <= 39) {
-            // music
-            foreach($wrapper->field_categories->value() as $cat) {
-                $Result[$cat] = $Result[$cat] +1;
-            }
-            $Result['songcount'] = $Result['songcount'] +1;
-        } else {
-            $Result['spoken'] = $Result['spoken'] + $wrapper->field_duration->value();
-        }
-    }
-    
-    return ($Result);
-}
 
